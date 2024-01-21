@@ -1,3 +1,4 @@
+import configparser
 import datetime
 import glob
 import os
@@ -10,22 +11,101 @@ from tkmacosx import Button
 
 # button的部分属性在mac不可调整， 比如无法改变button背景颜色，tkmacosx库，它提供的button按钮功能更全，并且还是跨平台的。
 def main():
-    root = tk.Tk()
-    root.iconname('Label Point')
-    root.iconbitmap('./myLabel.ico')  # 使用.ico格式的图标文件
-    # root.geometry("600x400")  # 设置窗口大小，可以根据需要调整
-    # load_images(label)  # 加载图片文件夹中的所有图片
-    # 在主函数中创建按钮并绑定事件处理器
-    ImageMarkingTool(root)
-    root.mainloop()
+    app = ImageMarkingTool()
+    app.mainloop()
 
 
-class ImageMarkingTool:
+class SettingsWindow:
     def __init__(self, master):
-        self.config = {'folder_path': '/Users/tansss/Downloads/TY-LOCNet/data/inf/val',
-                       'csv_path': '/Users/tansss/Downloads/TY-LOCNet/data/inf/val_label.csv'}
         self.master = master
-        self.master.title("Label Point")
+        self.folder_path_var = tk.StringVar()
+        self.csv_path_var = tk.StringVar()
+        self.window = tk.Toplevel(master)
+        self.window.transient(master)  # 设置子窗口与主窗口相关联
+        self.window.grab_set()
+        self.window.title("设置路径")
+        self.section = 'path'
+        self.key_csv = 'csv_file'
+        self.key_folder = 'image_folder'
+        self.config_file = 'config.ini'
+        self.init_variables()
+        # 添加标签和输入框（这里使用了Entry作为展示路径的控件）
+        tk.Label(self.window, text="默认图片文件夹路径：").grid(row=0, column=0)
+        storage_entry = tk.Entry(self.window, textvariable=self.folder_path_var, justify='center', width=30)
+        storage_entry.grid(row=0, column=1, rowspan=1, columnspan=2)
+
+        tk.Label(self.window, text="默认CSV文件路径：").grid(row=1, column=0)
+        config_entry = tk.Entry(self.window, textvariable=self.csv_path_var, justify='center', width=30)
+        config_entry.grid(row=1, column=1, rowspan=1, columnspan=2)
+
+        # 添加选择文件/目录的按钮
+        select_file_button = tk.Button(self.window, text="选择",
+                                       command=lambda: self.select_path(self.folder_path_var,
+                                                                        file_type=filedialog.askdirectory))
+        select_file_button.grid(row=0, column=3)
+
+        select_config_button = tk.Button(self.window, text="选择",
+                                         command=lambda: self.select_path(self.csv_path_var,
+                                                                          file_type=filedialog.askopenfilename))
+        select_config_button.grid(row=1, column=3)
+        # 在“确定”按钮上方添加横线
+        separator = ttk.Separator(self.window, orient="horizontal")
+        separator.grid(row=2, column=0, columnspan=4, sticky=tk.E + tk.W, pady=20)  # 横向扩展到三列
+        # 添加确认或取消按钮，以符合模态窗口的特点
+        cancel_button = tk.Button(self.window, text="取消", command=self.window.destroy)
+        ok_button = tk.Button(self.window, text="确定", command=self.close_window)
+        cancel_button.grid(row=3, column=1)  # 横向扩展填充整列
+        ok_button.grid(row=3, column=2)  # 横向扩展填充整列
+
+    def close_window(self):
+        folder_path = self.folder_path_var.get()
+        csv_path = self.csv_path_var.get()
+        # 创建一个配置解析器对象
+        config = configparser.ConfigParser()
+        # 读取INI文件
+        config.read(self.config_file)
+        # 修改指定section下的指定key的值
+        config.set(self.section, self.key_csv, csv_path)
+        config.set(self.section, self.key_folder, folder_path)
+        # 写入INI文件
+        with open(self.config_file, 'w') as f:
+            config.write(f)
+            f.close()
+        self.master.init_config()
+        self.window.destroy()
+
+    def init_variables(self):
+        config = configparser.ConfigParser()
+        if os.path.exists(self.config_file):
+            config.read(self.config_file)
+            if config.has_option(self.section, self.key_csv) and config.has_option(self.section, self.key_folder):
+                csv_path = config.get(self.section, self.key_csv)
+                folder_path = config.get(self.section, self.key_folder)
+                self.csv_path_var.set(csv_path)
+                self.folder_path_var.set(folder_path)
+
+    def select_path(self, var, file_type):
+        if file_type == filedialog.askopenfilename:
+            path = file_type(
+                title="选择CSV文件文件",
+                initialdir="/path/to/default/directory",  # 设置初始目录
+                filetypes=[('CSV文件', '*.csv')],  # 设置允许选择的文件类型
+            )
+        else:
+            path = file_type()
+        if path:
+            var.set(path)
+
+    def show(self):
+        self.window.geometry('500x150')
+        # 禁止用户通过鼠标拖动边缘来调整窗口大小
+        self.window.resizable(False, False)
+        self.window.mainloop()
+
+
+class ImageMarkingTool(tk.Tk):
+    def __init__(self):
+        super().__init__()
         self.name = None
         # img
         self.folder_path = None
@@ -35,65 +115,110 @@ class ImageMarkingTool:
         self.img_resize = 224
         self.img = None
         self.photo_image = None  # 转换为Tkinter支持的图像对象
+        self.scale_factor = 1.0  # 缩放因子
         # csv
         self.csv_path = None
         self.df = None
         self.row_to_modify = None
         # 创建菜单栏和功能按钮
-        menu_bar = tk.Menu(master)
-        file_menu = tk.Menu(menu_bar, tearoff=0)
-        file_menu.add_command(label="open folder", command=self.load_images)
-        file_menu.add_separator()
-        file_menu.add_command(label="Exit", command=master.quit)
-        menu_bar.add_cascade(label="File", menu=file_menu)
-        master.config(menu=menu_bar)
-
+        self.init_menu()
         # 创建显示区域和功能按钮
-        fun_frame = tk.Frame(master, bg='#191920')
+        fun_frame = tk.Frame(self)
+        self.label_box = tk.Label(fun_frame)
+        self.labeled_box = tk.Label(fun_frame)
+        self.init_fun(fun_frame)
+        # canvas组件
+        img_frame = tk.Frame(self)
+        self.canvas = tk.Canvas(img_frame)
+        self.init_img(img_frame)
+        # 初始化配置文件
+        self.init_config()
+
+    def open_settings(self):
+        settings = SettingsWindow(self)
+        settings.show()
+
+    def init_config(self):
+        # 创建一个配置解析器对象
+        config = configparser.ConfigParser()
+        section = 'path'
+        key_csv = 'csv_file'
+        key_folder = 'image_folder'
+        if os.path.exists('config.ini'):
+            # 读取INI文件
+            config.read('config.ini')
+            # 获取指定section下的指定key的值
+            if config.has_option(section, key_csv) and config.has_option(section, key_folder):
+                csv_path = config.get(section, key_csv)
+                folder_path = config.get(section, key_folder)
+                if (os.path.exists(csv_path) and os.path.exists(folder_path)
+                        and os.path.splitext(csv_path)[-1] == '.csv'):
+                    self.csv_path = csv_path
+                    self.folder_path = folder_path
+                    self.load_images()
+        else:
+            # 添加section和对应的key-value对
+            config.add_section(section)
+            config.set(section, key_csv, '')
+            config.set(section, key_folder, '')
+            # 写入INI文件
+            with open('config.ini', 'w') as f:
+                config.write(f)
+                f.close()
+
+    def init_menu(self):
+        self.iconname('Label Point')
+        self.iconbitmap('myLabel.ico')  # 使用.ico格式的图标文件
+        menu_bar = tk.Menu(self)
+        file_menu = tk.Menu(menu_bar, tearoff=0)
+        file_menu.add_command(label="Settings", command=self.open_settings)
+        file_menu.add_separator()
+        file_menu.add_command(label="Exit", command=self.quit)
+        menu_bar.add_cascade(label="File", menu=file_menu)
+        self.config(menu=menu_bar)
+        self.title("Label Point")
+        # 监听键盘事件
+        self.bind("<Left>", self.previous_image)  # 绑定左箭头快捷键到on_left_arrow函数
+        self.bind("<Right>", self.next_image)  # 绑定右箭头快捷键到on_right_arrow函数
+
+    def init_fun(self, fun_frame):
+        bg_btn = '#131314'
+        fg_btn = '#b5b8be'
+        focuscolor = '#131314'
+        bg = '#191920'
+        fg = '#bcbebd'
+        fun_frame.config(bg=bg)
         fun_frame.pack(fill=tk.X)
-        Button(fun_frame, bg='#131314', fg='#b5b8be', focuscolor='#131314', text="Previous Image",
+        Button(fun_frame, bg=bg_btn, fg=fg_btn, focuscolor=focuscolor, text="Previous Image",
                command=self.previous_image).pack(
             side=tk.LEFT)
-        Button(fun_frame, bg='#131314', fg='#b5b8be', focuscolor='#131314', text="Next Image",
+        Button(fun_frame, bg=bg_btn, fg=fg_btn, focuscolor=focuscolor, text="Next Image",
                command=self.next_image).pack(side=tk.LEFT)
-        Button(fun_frame, bg='#131314', fg='#b5b8be', focuscolor='#131314', text="Reset Label",
+        Button(fun_frame, bg=bg_btn, fg=fg_btn, focuscolor=focuscolor, text="Reset Label",
                command=self.reset_label).pack(side=tk.LEFT)
-        Button(fun_frame, bg='#131314', fg='#b5b8be', focuscolor='#131314', text="save CSV",
+        Button(fun_frame, bg=bg_btn, fg=fg_btn, focuscolor=focuscolor, text="save CSV",
                command=self.save_csv).pack(side=tk.LEFT)
         # 创建文本框
-        self.label_box = tk.Label(fun_frame, bg='#191920', foreground='#bcbebd')
         self.label_box.pack(side=tk.LEFT)
-        self.label_box.config(width=20, height=2)  # 宽度为20个字符，高度为5行
-        self.labeled_box = tk.Label(fun_frame, bg='#191920', foreground='#bcbebd')
+        self.label_box.config(width=20, height=2, bg=bg, foreground=fg)  # 宽度为20个字符，高度为5行
         self.labeled_box.pack(side=tk.LEFT)
-        self.labeled_box.config(width=20, height=2)  # 宽度为20个字符，高度为5行
+        self.labeled_box.config(width=20, height=2, bg=bg, foreground=fg)  # 宽度为20个字符，高度为5行
 
-        # canvas组件
-        self.scale_factor = 1.0  # 缩放因子
-        img_frame = tk.Frame(master)
-        self.canvas = tk.Canvas(img_frame, highlightthickness=0)
+    def init_img(self, img_frame):
         # 创建滚动区域
-        self.v_scrollbar = ttk.Scrollbar(img_frame, orient='vertical', command=self.scroll_y)
-        self.h_scrollbar = ttk.Scrollbar(img_frame, orient='horizontal', command=self.scroll_x)
+        v_scrollbar = ttk.Scrollbar(img_frame, orient='vertical', command=self.scroll_y)
+        h_scrollbar = ttk.Scrollbar(img_frame, orient='horizontal', command=self.scroll_x)
         # 设置Canvas与滚动条关联
-        self.canvas.config(yscrollcommand=self.v_scrollbar.set, xscrollcommand=self.h_scrollbar.set)
+        self.canvas.config(highlightthickness=0, yscrollcommand=v_scrollbar.set, xscrollcommand=h_scrollbar.set)
         # 将Canvas、滚动条放入frame中，并pack布局
-        self.v_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        self.h_scrollbar.pack(side=tk.BOTTOM, fill=tk.X)
+        v_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        h_scrollbar.pack(side=tk.BOTTOM, fill=tk.X)
         img_frame.pack(fill=tk.BOTH, expand=True)
         self.canvas.pack(fill=tk.BOTH, expand=True)
         # 监听鼠标事件
         self.canvas.bind('<ButtonPress-1>', self.mark_pixel)
         self.canvas.bind('<Motion>', self.on_mouse_move)
         self.canvas.bind('<MouseWheel>', self.on_mouse_wheel)
-        # 监听键盘事件
-        master.bind("<Left>", self.previous_image)  # 绑定左箭头快捷键到on_left_arrow函数
-        master.bind("<Right>", self.next_image)  # 绑定右箭头快捷键到on_right_arrow函数
-        master.mainloop()
-
-    def on_frame_configure(self, event):
-        """当内部frame大小改变时，更新Canvas滚动区域"""
-        self.canvas.config(scrollregion=self.canvas.bbox('all'))
 
     def scroll_y(self, *args):
         """响应垂直滚动条"""
@@ -126,12 +251,10 @@ class ImageMarkingTool:
             return img_x, img_y
 
     def get_img_xy(self):
-        if self.csv_path is None:  # 如果csv路径尚未设置（即第一次运行程序时）
-            # self.csv_path = filedialog.asksaveasfilename(defaultextension=".csv", filetypes=[
-            #     ("CSV Files", "*.csv")])  # 获取保存csv文件的路径和文件名（这里假设csv_path是ImageMarkingTool类的一个属性）
-            self.csv_path = self.config['csv_path']
+        if self.csv_path is None:  # 如果csv路径尚未设置
+            return
             # csv对于字符串类型支持不友好，index必须是数字类型，否则不兼容
-            self.df = pd.read_csv(self.csv_path, converters={'filename': str, 'x': float, 'y': float})
+        self.df = pd.read_csv(self.csv_path, converters={'filename': str, 'x': float, 'y': float})
         self.name = self.img_path.split('/')[-1].split('.')[0]
         self.row_to_modify = self.df['filename'] == self.name
         target_row = self.df.loc[self.row_to_modify]
@@ -146,9 +269,11 @@ class ImageMarkingTool:
             return x, y
         else:
             if target_row.empty:
-                messagebox.showwarning("csv data error", 'No matching filename found')
+                messagebox.showwarning("csv data error", f'No matching filename found:{self.name}')
             else:
-                messagebox.showwarning("csv data error", 'Finds a match for more than one row')
+                messagebox.showwarning("csv data error", f'Finds a match({self.name}) for more than one row:\n'
+                                                         f'{self.df.loc[self.row_to_modify]}')
+            self.clear_data()
 
     def mark_pixel(self, event):
         if self.img is None:
@@ -158,7 +283,7 @@ class ImageMarkingTool:
             self.update_label(x_label, y_label)
 
     def update_label(self, x_label, y_label):
-        if self.df is None:
+        if self.df is None or self.img_path is None:
             messagebox.showwarning("csv data error", 'please select csv file when show image')
             return
         # 图片像素按索引存取
@@ -195,28 +320,43 @@ class ImageMarkingTool:
         self.update_label(reset, reset)
 
     def save_csv(self):
-        date = datetime.datetime.now().strftime("%Y%m%d-%H%M")
-        date = f'{self.csv_path.split(".")[0]}-{date}.csv'
-        self.df.to_csv(date, index=False)
+        if self.csv_path:
+            date = datetime.datetime.now().strftime("%Y%m%d-%H%M")
+            date = f'{self.csv_path.split(".")[0]}-{date}.csv'
+            self.df.to_csv(date, index=False)
 
     def load_images(self):
-        # self.folder_path = filedialog.askdirectory()  # 选择文件夹路径
-        self.folder_path = self.config['folder_path']
         if self.folder_path:
             self.img_files = sorted(glob.glob('*.png', root_dir=self.folder_path))
             if self.img_files:  # 如果文件夹中有图片文件
-                self.img_path = os.path.join(self.folder_path, self.img_files[0])  # 取第一张图片的路径
+                self.img_index = 0
+                self.img_path = os.path.join(self.folder_path, self.img_files[self.img_index])  # 取第一张图片的路径
                 self.process_image()  # 处理并显示第一张图片
             else:
                 messagebox.showerror("Error", "No image files found in the folder.")
+                self.clear_data()
         else:
             messagebox.showerror("Error", "Failed to select a folder.")
 
+    def clear_data(self):
+        self.canvas.delete('all')
+        self.img = None
+        self.label_box['text'] = ''
+        self.labeled_box['text'] = ''
+        self.img_path = None
+        self.img_index = 0
+        self.csv_path = None
+        self.df = None
+        self.row_to_modify = None
+
     def process_image(self):
+        result = self.get_img_xy()
+        if result is None:
+            return
         self.img = Image.open(self.img_path).resize((self.img_resize, self.img_resize),
                                                     resample=Image.NEAREST)
-        self.master.title(f'{self.img_path}(第{self.img_index + 1}张图片)')
-        x_label, y_label = self.get_img_xy()
+        self.title(f'{self.img_path}(第{self.img_index + 1}张图片)')
+        x_label, y_label = result
         self.add_rect(x_label, y_label)
 
     def update_display(self):
