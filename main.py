@@ -15,14 +15,36 @@ def main():
     app.mainloop()
 
 
+class AutoClosingMessageBox:
+    def __init__(self, master, title, message, duration=1500):
+        self.master = master
+        self.duration = duration  # 消息框显示的时间（毫秒）
+        self.window = tk.Toplevel(master)
+        self.window.transient(master)  # 设置子窗口与主窗口相关联
+        self.window.title(title)
+        label = ttk.Label(self.window, text=message,font=("宋体", 16))
+        label.pack(pady=20)
+        self.window.geometry('300x100')
+        # 计算并设置子窗口位置居中
+        x = (master.winfo_rootx() + (master.winfo_width() // 2)) - (self.window.winfo_reqwidth() // 2)
+        y = (master.winfo_rooty() + (master.winfo_height() // 2)) - (self.window.winfo_reqheight() // 2)
+        self.window.geometry("+{}+{}".format(x, y))
+        # 禁止用户通过鼠标拖动边缘来调整窗口大小
+        self.window.resizable(False, False)
+        self.close_timer()
+
+    def close_timer(self):
+        self.window.after(self.duration, self.window.destroy)
+
+
 class SettingsWindow:
     def __init__(self, master):
         self.master = master
         self.folder_path_var = tk.StringVar()
         self.csv_path_var = tk.StringVar()
         self.window = tk.Toplevel(master)
-        self.window.transient(master)  # 设置子窗口与主窗口相关联
-        self.window.grab_set()
+        self.window.transient(master)  # 设置子窗口与主窗口相关联、分离父子窗口而不是标签页形式
+        self.window.grab_set()  # （模态）焦点“抓取”到当前窗口上，用户将无法与其它顶级窗口进行交互，直到释放焦点为止。
         self.window.title("设置路径")
         self.section = 'path'
         self.key_csv = 'csv_file'
@@ -126,10 +148,12 @@ class ImageMarkingTool(tk.Tk):
         fun_frame = tk.Frame(self)
         self.label_box = tk.Label(fun_frame)
         self.labeled_box = tk.Label(fun_frame)
+        self.input_var = tk.StringVar()
+        self.filename_entry = tk.Entry(fun_frame)
         self.init_fun(fun_frame)
         # canvas组件
         img_frame = tk.Frame(self)
-        self.canvas = tk.Canvas(img_frame)
+        self.img_canvas = tk.Canvas(img_frame)
         self.init_img(img_frame)
         # 初始化配置文件
         self.init_config()
@@ -177,9 +201,6 @@ class ImageMarkingTool(tk.Tk):
         menu_bar.add_cascade(label="File", menu=file_menu)
         self.config(menu=menu_bar)
         self.title("Label Point")
-        # 监听键盘事件
-        self.bind("<Left>", self.previous_image)  # 绑定左箭头快捷键到on_left_arrow函数
-        self.bind("<Right>", self.next_image)  # 绑定右箭头快捷键到on_right_arrow函数
 
     def init_fun(self, fun_frame):
         bg_btn = '#131314'
@@ -203,30 +224,82 @@ class ImageMarkingTool(tk.Tk):
         self.label_box.config(width=20, height=2, bg=bg, foreground=fg)  # 宽度为20个字符，高度为5行
         self.labeled_box.pack(side=tk.LEFT)
         self.labeled_box.config(width=20, height=2, bg=bg, foreground=fg)  # 宽度为20个字符，高度为5行
+        # 创建一个StringVar存储输入值并初始化为占位符文本
+        input_str = '请输入文件名...'
+        self.input_var.set(input_str)
+        # 绑定焦点进入和离开事件
+        self.filename_entry.bind("<FocusIn>",
+                                 lambda event: self.input_var.set('') if self.input_var.get() == input_str else None)
+        self.filename_entry.bind("<FocusOut>",
+                                 lambda event: self.input_var.set(input_str) if self.input_var.get() == "" else None)
+
+        self.filename_entry.config(textvariable=self.input_var)
+        self.filename_entry.pack(side=tk.LEFT)
+        # 创建跳转按钮
+        Button(fun_frame, text="文件名跳转", bg=bg_btn, fg=fg_btn, focuscolor=focuscolor,
+               command=self.name_goto_file).pack(
+            side=tk.LEFT)
+        Button(fun_frame, text="序号跳转", bg=bg_btn, fg=fg_btn, focuscolor=focuscolor,
+               command=self.order_goto_file).pack(
+            side=tk.LEFT)
+
+    def name_goto_file(self):
+        if not self.img_files:
+            return None
+        # 获取输入框中的文件名
+        filename = self.filename_entry.get()
+        name = filename.split('/')[-1].split('.')[0]
+        filename = name + '.png'
+        try:
+            index = self.img_files.index(filename)
+            self.img_index = index
+            self.img_path = os.path.join(self.folder_path, filename)
+            self.process_image()
+        except ValueError:
+            AutoClosingMessageBox(self, "提示", "找不到此文件")
+
+    def order_goto_file(self):
+        if not self.img_files:
+            return None
+        # 获取输入框中的文件名
+        order = self.filename_entry.get()
+        if order.isdigit() and 0 < int(order) <= len(self.img_files):  # 检查字符串是否全部由数字组成
+            self.img_index = int(order) - 1
+            self.img_path = os.path.join(self.folder_path, self.img_files[self.img_index])  # 更新图片路径
+            self.process_image()
+        else:
+            AutoClosingMessageBox(self, "提示", "序号输入有误")
 
     def init_img(self, img_frame):
         # 创建滚动区域
         v_scrollbar = ttk.Scrollbar(img_frame, orient='vertical', command=self.scroll_y)
         h_scrollbar = ttk.Scrollbar(img_frame, orient='horizontal', command=self.scroll_x)
         # 设置Canvas与滚动条关联
-        self.canvas.config(highlightthickness=0, yscrollcommand=v_scrollbar.set, xscrollcommand=h_scrollbar.set)
+        self.img_canvas.config(highlightthickness=0, yscrollcommand=v_scrollbar.set, xscrollcommand=h_scrollbar.set)
         # 将Canvas、滚动条放入frame中，并pack布局
         v_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         h_scrollbar.pack(side=tk.BOTTOM, fill=tk.X)
         img_frame.pack(fill=tk.BOTH, expand=True)
-        self.canvas.pack(fill=tk.BOTH, expand=True)
+        self.img_canvas.pack(fill=tk.BOTH, expand=True)
         # 监听鼠标事件
-        self.canvas.bind('<ButtonPress-1>', self.mark_pixel)
-        self.canvas.bind('<Motion>', self.on_mouse_move)
-        self.canvas.bind('<MouseWheel>', self.on_mouse_wheel)
+        self.img_canvas.bind('<ButtonPress-1>', self.mark_pixel)
+        self.img_canvas.bind('<Motion>', self.on_mouse_move)
+        self.img_canvas.bind('<MouseWheel>', self.on_mouse_wheel)
+        # 监听键盘事件
+        self.bind("<Left>",
+                  lambda
+                      event: self.previous_image() if self.focus_get() != self.filename_entry else None)  # 绑定左箭头快捷键到on_left_arrow函数
+        self.bind("<Right>",
+                  lambda
+                      event: self.next_image() if self.focus_get() != self.filename_entry else None)  # 绑定右箭头快捷键到on_right_arrow函数
 
     def scroll_y(self, *args):
         """响应垂直滚动条"""
-        self.canvas.yview(*args)
+        self.img_canvas.yview(*args)
 
     def scroll_x(self, *args):
         """响应水平滚动条"""
-        self.canvas.xview(*args)
+        self.img_canvas.xview(*args)
 
     def on_mouse_wheel(self, event):
         delta = event.delta / 120  # 滚轮滚动的角度，通常为120单位/每次滚动
@@ -237,10 +310,10 @@ class ImageMarkingTool(tk.Tk):
     def on_mouse_move(self, event=None):
         # 获取鼠标指针在原图上的像素位置
         if self.img is not None:
-            canvas_pos = self.canvas.winfo_pointerxy()
+            canvas_pos = self.img_canvas.winfo_pointerxy()
             # canvas_pos是鼠标指针相对于窗口的坐标，再减去窗口左上角的坐标,加上滚动的距离canvasx
-            x = canvas_pos[0] - self.canvas.winfo_rootx() + self.canvas.canvasx(0)  # 抵消水平滚动的距离
-            y = canvas_pos[1] - self.canvas.winfo_rooty() + self.canvas.canvasy(0)  # 抵消垂直滚动的距离
+            x = canvas_pos[0] - self.img_canvas.winfo_rootx() + self.img_canvas.canvasx(0)  # 抵消水平滚动的距离
+            y = canvas_pos[1] - self.img_canvas.winfo_rooty() + self.img_canvas.canvasy(0)  # 抵消垂直滚动的距离
             # 根据缩放因子转换到原图坐标
             img_x = x / self.scale_factor
             img_y = y / self.scale_factor
@@ -276,6 +349,7 @@ class ImageMarkingTool(tk.Tk):
             self.clear_data()
 
     def mark_pixel(self, event):
+        self.img_canvas.focus_set()
         if self.img is None:
             return None
         x_label, y_label = self.on_mouse_move()
@@ -328,6 +402,7 @@ class ImageMarkingTool(tk.Tk):
     def load_images(self):
         if self.folder_path:
             self.img_files = sorted(glob.glob('*.png', root_dir=self.folder_path))
+
             if self.img_files:  # 如果文件夹中有图片文件
                 self.img_index = 0
                 self.img_path = os.path.join(self.folder_path, self.img_files[self.img_index])  # 取第一张图片的路径
@@ -339,7 +414,7 @@ class ImageMarkingTool(tk.Tk):
             messagebox.showerror("Error", "Failed to select a folder.")
 
     def clear_data(self):
-        self.canvas.delete('all')
+        self.img_canvas.delete('all')
         self.img = None
         self.label_box['text'] = ''
         self.labeled_box['text'] = ''
@@ -363,9 +438,9 @@ class ImageMarkingTool(tk.Tk):
         if self.img:
             scaled_img = ImageOps.scale(self.img, self.scale_factor, resample=Image.NEAREST)
             self.photo_image = ImageTk.PhotoImage(scaled_img)
-            self.canvas.delete('all')
-            self.canvas.create_image(0, 0, anchor='nw', image=self.photo_image)
-            self.canvas.config(scrollregion=self.canvas.bbox('all'))  # 设置滚动区域为图片的实际大小
+            self.img_canvas.delete('all')
+            self.img_canvas.create_image(0, 0, anchor='nw', image=self.photo_image)
+            self.img_canvas.config(scrollregion=self.img_canvas.bbox('all'))  # 设置滚动区域为图片的实际大小
 
     def next_image(self, event=None):
         if self.img_index < len(self.img_files) - 1:  # 如果不是最后一张图片
