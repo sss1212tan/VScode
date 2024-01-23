@@ -22,7 +22,7 @@ class AutoClosingMessageBox:
         self.window = tk.Toplevel(master)
         self.window.transient(master)  # 设置子窗口与主窗口相关联
         self.window.title(title)
-        label = ttk.Label(self.window, text=message,font=("宋体", 16))
+        label = ttk.Label(self.window, text=message, font=("宋体", 16))
         label.pack(pady=20)
         self.window.geometry('300x100')
         # 计算并设置子窗口位置居中
@@ -156,6 +156,7 @@ class ImageMarkingTool(tk.Tk):
         self.img_canvas = tk.Canvas(img_frame)
         self.init_img(img_frame)
         # 初始化配置文件
+        self.record_config = configparser.ConfigParser()
         self.init_config()
 
     def open_settings(self):
@@ -287,11 +288,9 @@ class ImageMarkingTool(tk.Tk):
         self.img_canvas.bind('<MouseWheel>', self.on_mouse_wheel)
         # 监听键盘事件
         self.bind("<Left>",
-                  lambda
-                      event: self.previous_image() if self.focus_get() != self.filename_entry else None)  # 绑定左箭头快捷键到on_left_arrow函数
+                  lambda event: self.previous_image() if self.focus_get() != self.filename_entry else None)
         self.bind("<Right>",
-                  lambda
-                      event: self.next_image() if self.focus_get() != self.filename_entry else None)  # 绑定右箭头快捷键到on_right_arrow函数
+                  lambda event: self.next_image() if self.focus_get() != self.filename_entry else None)
 
     def scroll_y(self, *args):
         """响应垂直滚动条"""
@@ -402,10 +401,18 @@ class ImageMarkingTool(tk.Tk):
     def load_images(self):
         if self.folder_path:
             self.img_files = sorted(glob.glob('*.png', root_dir=self.folder_path))
-
             if self.img_files:  # 如果文件夹中有图片文件
                 self.img_index = 0
-                self.img_path = os.path.join(self.folder_path, self.img_files[self.img_index])  # 取第一张图片的路径
+                # 读取INI文件
+                section = 'last'
+                key = self.folder_path
+                self.record_config.read('record.ini')
+                # 获取指定section下的指定key的值
+                if self.record_config.has_option(section, key):
+                    index = self.record_config.get(section, key)
+                    if index.isdigit():
+                        self.img_index = int(index)
+                self.img_path = os.path.join(self.folder_path, self.img_files[self.img_index])  # 取图片的路径
                 self.process_image()  # 处理并显示第一张图片
             else:
                 messagebox.showerror("Error", "No image files found in the folder.")
@@ -447,12 +454,25 @@ class ImageMarkingTool(tk.Tk):
             self.img_index += 1  # 下一张图片的索引
             self.img_path = os.path.join(self.folder_path, self.img_files[self.img_index])  # 更新图片路径
             self.process_image()  # 显示下一张图片
+            self.update_record(self.img_index)
 
     def previous_image(self, event=None):
         if self.img_index > 0:  # 如果不是第一张图片
             self.img_index -= 1  # 上一张图片的索引
             self.img_path = os.path.join(self.folder_path, self.img_files[self.img_index])  # 更新图片路径
             self.process_image()  # 显示上一张图片
+            self.update_record(self.img_index)
+
+    def update_record(self, index):
+        section = 'last'
+        key = self.folder_path
+        if not self.record_config.has_section(section):
+            self.record_config.add_section(section)
+        self.record_config.set(section, key, str(index))
+        # 写入INI文件
+        with open('record.ini', 'w') as f:
+            self.record_config.write(f)
+            f.close()
 
 
 if __name__ == "__main__":
