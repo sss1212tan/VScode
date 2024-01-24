@@ -8,6 +8,11 @@ from PIL import Image, ImageTk, ImageDraw, ImageOps
 import pandas as pd
 from tkmacosx import Button
 
+home_dir = os.path.expanduser("~")
+config_dir = os.path.join(home_dir, '.myLabel')
+config_file = os.path.join(config_dir, 'config.ini')
+record_file = os.path.join(config_dir, 'record.ini')
+
 
 # button的部分属性在mac不可调整， 比如无法改变button背景颜色，tkmacosx库，它提供的button按钮功能更全，并且还是跨平台的。
 def main():
@@ -49,7 +54,6 @@ class SettingsWindow:
         self.section = 'path'
         self.key_csv = 'csv_file'
         self.key_folder = 'image_folder'
-        self.config_file = 'config.ini'
         self.init_variables()
         # 添加标签和输入框（这里使用了Entry作为展示路径的控件）
         tk.Label(self.window, text="默认图片文件夹路径：").grid(row=0, column=0)
@@ -85,12 +89,12 @@ class SettingsWindow:
         # 创建一个配置解析器对象
         config = configparser.ConfigParser()
         # 读取INI文件
-        config.read(self.config_file)
+        config.read(config_file)
         # 修改指定section下的指定key的值
         config.set(self.section, self.key_csv, csv_path)
         config.set(self.section, self.key_folder, folder_path)
         # 写入INI文件
-        with open(self.config_file, 'w') as f:
+        with open(config_file, 'w') as f:
             config.write(f)
             f.close()
         self.master.init_config()
@@ -98,8 +102,8 @@ class SettingsWindow:
 
     def init_variables(self):
         config = configparser.ConfigParser()
-        if os.path.exists(self.config_file):
-            config.read(self.config_file)
+        if os.path.exists(config_file):
+            config.read(config_file)
             if config.has_option(self.section, self.key_csv) and config.has_option(self.section, self.key_folder):
                 csv_path = config.get(self.section, self.key_csv)
                 folder_path = config.get(self.section, self.key_folder)
@@ -169,9 +173,12 @@ class ImageMarkingTool(tk.Tk):
         section = 'path'
         key_csv = 'csv_file'
         key_folder = 'image_folder'
-        if os.path.exists('config.ini'):
+        # 是否存在此目录
+        if not (os.path.exists(config_dir) and os.path.isdir(config_dir)):
+            os.mkdir(config_dir)
+        if os.path.exists(config_file):
             # 读取INI文件
-            config.read('config.ini')
+            config.read(config_file)
             # 获取指定section下的指定key的值
             if config.has_option(section, key_csv) and config.has_option(section, key_folder):
                 csv_path = config.get(section, key_csv)
@@ -187,13 +194,12 @@ class ImageMarkingTool(tk.Tk):
             config.set(section, key_csv, '')
             config.set(section, key_folder, '')
             # 写入INI文件
-            with open('config.ini', 'w') as f:
+            with open(config_file, 'w') as f:
                 config.write(f)
                 f.close()
 
     def init_menu(self):
         self.iconname('Label Point')
-        self.iconbitmap('myLabel.ico')  # 使用.ico格式的图标文件
         menu_bar = tk.Menu(self)
         file_menu = tk.Menu(menu_bar, tearoff=0)
         file_menu.add_command(label="Settings", command=self.open_settings)
@@ -406,7 +412,7 @@ class ImageMarkingTool(tk.Tk):
                 # 读取INI文件
                 section = 'last'
                 key = self.folder_path
-                self.record_config.read('record.ini')
+                self.record_config.read(record_file)
                 # 获取指定section下的指定key的值
                 if self.record_config.has_option(section, key):
                     index = self.record_config.get(section, key)
@@ -470,7 +476,7 @@ class ImageMarkingTool(tk.Tk):
             self.record_config.add_section(section)
         self.record_config.set(section, key, str(index))
         # 写入INI文件
-        with open('record.ini', 'w') as f:
+        with open(record_file, 'w') as f:
             self.record_config.write(f)
             f.close()
 
